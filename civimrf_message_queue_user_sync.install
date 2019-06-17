@@ -1,0 +1,56 @@
+<?php
+
+/**
+ * Implements hook_enable().
+ */
+function civimrf_message_queue_user_sync_enable() {
+  // Check if our field is not already created.
+  if (!field_info_field('field_civimrf_user_sync_uid')) {
+    $field = array(
+        'field_name' => 'field_civimrf_user_sync_uid',
+        'type' => 'number_integer', 
+    );
+    field_create_field($field);
+
+    // Create the instance on the bundle.
+    $instance = array(
+        'field_name' => 'field_civimrf_user_sync_uid',
+        'entity_type' => 'user', 
+        'label' => 'CiviCRM User Sync UID', 
+        'bundle' => 'user', 
+        // If you don't set the "required" property then the field wont be required by default.
+        'required' => FALSE,
+        'settings' => array(
+           // Here you inform either or not you want this field showing up on the registration form.
+            'user_register_form' => 0,
+        ),
+        'widget' => array(
+            'type' => 'textfield',
+            'weight' => '1',
+            '#attributes' => array('disabled' => TRUE),
+        ), 
+    );
+    field_create_instance($instance);
+  }
+}
+
+/**
+ * Implements hook_disable().
+ */
+function civimrf_message_queue_user_sync_disable() {
+	variable_del('civimrf_message_queue_user_sync_profile');
+	variable_del('civimrf_message_queue_user_name');
+	variable_del('civimrf_message_queue_user_sync_api_limit');
+	variable_del('civimrf_message_queue_user_sync_username_attribute');
+	variable_del('civimrf_message_queue_user_sync_email_attribute');
+  variable_del('civimrf_message_queue_user_sync_hide_username_field');
+  variable_del('civimrf_message_queue_user_sync_hide_email_field');
+  variable_del('civimrf_message_queue_user_sync_roles');
+	variable_del(civimrf_message_queue_user_sync_get_connector_name(null));
+  if (function_exists('cmrf_core_list_profiles')) {
+    $profiles = cmrf_core_list_profiles();
+    foreach ($profiles as $profile_name => $profile) {
+      variable_del(civimrf_message_queue_user_sync_get_connector_name($profile_name));
+    }
+  }
+}

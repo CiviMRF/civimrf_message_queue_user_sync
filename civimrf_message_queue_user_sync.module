@@ -1,0 +1,195 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function civimrf_message_queue_user_sync_menu() {
+  $items['admin/config/civimrf/civimrf_message_queue_user_sync'] = array(
+    'title' => 'CiviCRM Message Queue User Synchronisation',
+    'description' => 'Edit the synchronisation settings for CiviCRM Message Queue User Synchronisation.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('civimrf_message_queue_user_sync_admin_form'),
+    'access arguments' => array('administer cmrf'),
+    'file' => 'civimrf_message_queue_user_sync.admin.inc',
+    'weight' => 0,
+  );
+	return $items;
+}
+
+
+function civimrf_message_queue_user_sync_cron() {
+	$settings = civimrf_message_queue_user_sync_get_settings();
+
+	$parameters = array();
+	$parameters['name'] = $settings['message_queue_name'];
+	$options = array();
+	$options['limit'] = $settings['api_limit'];
+  $call = civimrf_message_queue_user_sync_send_call('ChangeMessageApiQueue', 'get', $parameters, $options, $settings['profile']);
+	$users = $call->getReply();
+	if (isset($users['is_error']) && $users['is_error']) {
+		watchdog('error', 'Could not synchronize users');
+		return;
+	}
+
+	foreach($users['values'] as $contact) {
+    civimrf_message_queue_user_sync_syncuser($contact);
+  }
+}
+
+/**
+ * Syncs a user to an existing or new user.
+ */
+function civimrf_message_queue_user_sync_syncuser($contact) {
+	$settings = civimrf_message_queue_user_sync_get_settings();
+	$uid = $contact['contact_id'];
+  $username = isset($contact['message'][$settings['username_attribute']]) ? $contact['message'][$settings['username_attribute']] : false;
+	$email = isset($contact['message'][$settings['email_attribute']]) ? $contact['message'][$settings['email_attribute']] : false;
+	if (empty($username) && empty($email)) {
+		return; // both username and email are empty so no information to create an account.
+	} elseif (empty($username) && !empty($email)) {
+		$username = $email;
+	}
+	
+	$account = civimrf_message_queue_user_sync_load_user($uid, $username, $email);
+	if ($account) {
+		$edit = array();
+		$edit['name'] = $username;
+		$edit['mail'] = $email;
+		$edit['status'] = 1;
+		$edit['field_civimrf_user_sync_uid']['und'][0]['value'] = $uid;
+		$edit['roles'] = $settings['roles'];
+		drupal_alter('civimrf_message_queue_user_update', $edit, $contact_id, $contact['message']);
+		return user_save($account, $edit);
+	} else {
+		$edit = array();
+		$edit['name'] = $username;
+		$edit['mail'] = $email;
+		$edit['status'] = 1;
+		$edit['field_civimrf_user_sync_uid']['und'][0]['value'] = $uid;
+		$edit['init'] = $email;
+		$edit['pass'] = user_password();
+		$edit['roles'] = $settings['roles'];
+		drupal_alter('civimrf_message_queue_user_new', $edit, $contact_id, $contact['message']);
+		$account = user_save(null, $edit);
+
+		$params['account'] = $account;
+  	$language = user_preferred_language($account);
+  	drupal_mail('user', 'register_admin_created', $account->mail, $language, $params);
+		
+		return $account;
+	}
+	return false;
+}
+
+/**
+ * Load a user by its uid or its username.
+ */
+function civimrf_message_queue_user_sync_load_user($uid, $username, $email=false) {
+	// First lookup the user by the uid.	
+	$query = new EntityFieldQuery();
+  $query
+    ->entityCondition('entity_type', 'user', '=')
+    ->fieldCondition('field_civimrf_user_sync_uid', 'value', $uid, '=');
+  $result = $query->execute();
+	if (isset($result['user'])) {
+		foreach($result['user'] as $user) {
+			return user_load($user->uid);
+		}
+	}
+	
+	// If the user is not found see whether we can find it by its username.
+	$query = new EntityFieldQuery();
+  $query
+    ->entityCondition('entity_type', 'user', '=')
+    ->propertyCondition('name', $username);
+  $result = $query->execute();
+	if (isset($result['user'])) {
+		foreach($result['user'] as $user) {
+			return user_load($user->uid);
+		}
+	}
+	
+	// If the user is not found see whether we can find it by its email.
+  if ($email) {
+    $query = new EntityFieldQuery();
+    $query
+      ->entityCondition('entity_type', 'user', '=')
+      ->propertyCondition('mail', $email);
+    $result = $query->execute();
+    if (isset($result['user'])) {
+      foreach ($result['user'] as $user) {
+        return user_load($user->uid);
+      }
+    }
+  }
+	
+	// User not found.
+	return null;
+}
+
+function civimrf_message_queue_user_sync_get_connector_name($profile) {
+  return 'civimrf_message_queue_user_sync_connector:'.$profile;
+}
+
+function civimrf_message_queue_user_sync_get_connector_id($profile=null) {
+  $connector_name = civimrf_message_queue_user_sync_get_connector_name($profile);
+
+  $core = cmrf_core_get_core();
+  $connector_id = variable_get($connector_name);
+  if (empty($connector_id)) {
+    $connector_id = $core->registerConnector($connector_name, $profile);
+    variable_set($connector_name, $connector_id);
+  }
+  return $connector_id;
+}
+
+/**
+ * Send a CiviMRF call
+ */
+function civimrf_message_queue_user_sync_send_call($entity, $action, $parameters, $options, $profile) {
+  $connector_id = civimrf_message_queue_user_sync_get_connector_id($profile);
+  $core = cmrf_core_get_core();
+  $call = $core->createCall($connector_id, $entity, $action, $parameters, $options);
+  $core->executeCall($call);
+  return $call;
+}
+
+function civimrf_message_queue_user_sync_get_settings() {
+	return array(
+		'profile' => variable_get('civimrf_message_queue_user_sync_profile', null),
+		'message_queue_name' => variable_get('civimrf_message_queue_user_name', ''),
+    'api_limit' => variable_get('civimrf_message_queue_user_sync_api_limit', '100'),
+		'username_attribute' => variable_get('civimrf_message_queue_user_sync_username_attribute', 'email'),
+		'email_attribute' => variable_get('civimrf_message_queue_user_sync_email_attribute', 'email'),
+		'hide_username_field' => variable_get('civimrf_message_queue_user_sync_hide_username_field', true),
+		'hide_email_field' => variable_get('civimrf_message_queue_user_sync_hide_email_field', true),
+		'roles' => variable_get('civimrf_message_queue_user_sync_roles', array(DRUPAL_AUTHENTICATED_RID)),
+	);
+}
+
+/**
+ * Hide the uid field from the form.
+ */
+function civimrf_message_queue_user_sync_form_user_profile_form_alter(&$form, &$form_state, $form_id) {
+  $settings = civimrf_message_queue_user_sync_get_settings();
+  $current_user = user_uid_optional_load();
+  if (!in_array('administrator', $current_user->roles)) {
+    $form['field_civimrf_user_sync_uid']['#access'] = false;
+  }
+  if ($settings['hide_username_field']) {
+    $form['account']['name']['#access'] = false;
+  }
+  if ($settings['hide_email_field']) {
+    $form['account']['mail']['#access'] = false;
+  }
+}
+
+/**
+ * Hide the uid field from the user profile
+ */
+function civimrf_message_queue_user_sync_preprocess_user_profile(&$vars) {
+  $current_user = user_uid_optional_load();
+	if (!in_array('administrator', $current_user->roles)) {
+		unset($vars['user_profile']['field_civimrf_user_sync_uid']);
+	}
+}
