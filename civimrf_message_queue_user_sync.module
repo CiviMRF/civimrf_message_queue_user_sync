@@ -72,9 +72,11 @@ function civimrf_message_queue_user_sync_syncuser($contact) {
 		drupal_alter('civimrf_message_queue_user_new', $edit, $contact_id, $contact['message']);
 		$account = user_save(null, $edit);
 
-		$params['account'] = $account;
-  	$language = user_preferred_language($account);
-  	drupal_mail('user', 'register_admin_created', $account->mail, $language, $params);
+		if ($settings['send_account_mail']) {
+      $params['account'] = $account;
+      $language = user_preferred_language($account);
+      drupal_mail('user', 'register_admin_created', $account->mail, $language, $params);
+    }
 		
 		return $account;
 	}
@@ -161,6 +163,7 @@ function civimrf_message_queue_user_sync_get_settings() {
     'api_limit' => variable_get('civimrf_message_queue_user_sync_api_limit', '100'),
 		'username_attribute' => variable_get('civimrf_message_queue_user_sync_username_attribute', 'email'),
 		'email_attribute' => variable_get('civimrf_message_queue_user_sync_email_attribute', 'email'),
+		'send_account_mail' => variable_get('civimrf_message_queue_user_sync_send_account_mail', true),
 		'hide_username_field' => variable_get('civimrf_message_queue_user_sync_hide_username_field', true),
 		'hide_email_field' => variable_get('civimrf_message_queue_user_sync_hide_email_field', true),
 		'roles' => variable_get('civimrf_message_queue_user_sync_roles', array(DRUPAL_AUTHENTICATED_RID)),

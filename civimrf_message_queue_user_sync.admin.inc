@@ -36,6 +36,11 @@ function civimrf_message_queue_user_sync_admin_form($form, &$form_state) {
 	$form['email_attribute']['#description'] = t('The attribute is the field in the results of the API call and is stored as the email at the user record.');
 	$form['email_attribute']['#required'] = true;
   $form['email_attribute']['#default_value'] = $settings['email_attribute'];
+
+  $form['send_account_mail']['#type'] = 'checkbox';
+  $form['send_account_mail']['#title'] = t('Send account mail');
+  $form['send_account_mail']['#description'] = t('When a new user is created send an account mail');
+  $form['send_account_mail']['#default_value'] = $settings['send_account_mail'];
   
   $form['hide_username_field']['#type'] = 'checkbox';
   $form['hide_username_field']['#title'] = t('Hide username field');
@@ -100,6 +105,7 @@ function civimrf_message_queue_user_sync_admin_form_submit($form, &$form_state) 
 	variable_set('civimrf_message_queue_user_sync_username_attribute', $form_state['values']['username_attribute']);
 	variable_set('civimrf_message_queue_user_sync_email_attribute', $form_state['values']['email_attribute']);
   variable_set('civimrf_message_queue_user_sync_hide_username_field', $form_state['values']['hide_username_field']);
+  variable_set('civimrf_message_queue_user_sync_send_account_mail', $form_state['values']['send_account_mail']);
   variable_set('civimrf_message_queue_user_sync_hide_email_field', $form_state['values']['hide_email_field']);
 	variable_set('civimrf_message_queue_user_sync_roles', $form_state['values']['roles']);
 
